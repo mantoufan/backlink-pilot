@@ -639,9 +639,9 @@ overseas_general:
   - name: Changelog
     submit_url: https://changelog.com/news/submit
     type: form
-    auto: yes
+    auto: manual
     lang: en
-    notes: Developer-focused, high quality
+    notes: "Developer-focused, high quality. Requires signin/signup. Also rejects commercial products explicitly."
 
   - name: Digital Stuff We Love
     submit_url: https://digitalstuffwelove.org.nz/submit-tool
@@ -659,8 +659,9 @@ overseas_general:
   - name: 10words
     submit_url: https://10words.io/
     type: form
-    auto: yes
+    auto: manual
     lang: en
+    notes: "Now requires account signup as of 2026-05 (redirects to portal.10words.io/auth/register)"
 
   - name: MicroLaunch
     submit_url: https://microlaunch.net/
@@ -873,8 +874,10 @@ overseas_general:
   - name: Simple Lister
     submit_url: https://simplelister.com/
     type: form
-    auto: yes
+    auto: no
     lang: en
+    status: dead
+    notes: "Redirects to 10words.io as of 2026-05-14 (acquired/merged) — duplicate"
 
   - name: Launching Today
     submit_url: https://www.launching.today/
@@ -891,8 +894,9 @@ overseas_general:
   - name: Twelve.tools
     submit_url: https://twelve.tools/submit-your-tool
     type: form
-    auto: yes
+    auto: manual
     lang: en
+    notes: "Requires reciprocal backlink (twelve.tools badge on your homepage) + 128x128 logo upload. Skip unless willing to add their badge."
 
   - name: Top10
     submit_url: https://top10.now/submit
@@ -958,8 +962,10 @@ overseas_general:
   - name: insanelycooltools
     submit_url: https://www.insanelycooltools.com/submit
     type: form
-    auto: yes
+    auto: no
     lang: en
+    status: dead
+    notes: "Domain parked on GoDaddy as of 2026-05-14"
 
   - name: findatool
     submit_url: https://www.findatool.io/add-a-tool

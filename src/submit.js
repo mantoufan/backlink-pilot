@@ -1,8 +1,26 @@
 // submit.js — Dispatch submissions to site-specific or generic adapters
 
-import { readdirSync } from 'fs';
+import { readdirSync, readFileSync, existsSync } from 'fs';
+import { parse } from 'yaml';
 import { utmUrl } from './config.js';
 import { recordSubmission } from './tracker.js';
+
+function resolveSiteLang(site) {
+  if (!existsSync('targets.yaml')) return null;
+  const targets = parse(readFileSync('targets.yaml', 'utf-8'));
+  const isUrl = site.startsWith('http');
+  for (const group of Object.values(targets || {})) {
+    if (!Array.isArray(group)) continue;
+    for (const entry of group) {
+      if (isUrl) {
+        if (entry.submit_url === site) return entry.lang || null;
+      } else if (entry.name && entry.name.toLowerCase().replace(/\s+/g, '') === site.toLowerCase()) {
+        return entry.lang || null;
+      }
+    }
+  }
+  return null;
+}
 
 // Dynamic import of site adapters
 async function loadAdapter(site) {
@@ -46,6 +64,13 @@ export async function submit(site, opts) {
     ...config.product,
     utm_url: utmUrl(config, site),
   };
+
+  const lang = resolveSiteLang(site);
+  if (lang === 'zh' && product.description_zh) {
+    product.description = product.description_zh;
+    if (product.long_description_zh) product.long_description = product.long_description_zh;
+    console.log(`  🌏 Using Chinese description (site lang: zh)`);
+  }
 
   console.log(`\n🚀 Submitting "${product.name}" to ${site}`);
   if (opts.dryRun) {
