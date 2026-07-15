@@ -85,15 +85,58 @@ export class BbPage {
   }
 
   async goto(url, _opts = {}) {
-    const result = bb('open', url, '--tab');
+    // Navigate the ACTIVE tab (no --tab). bb-browser 0.11.6+ opens `--tab` in the
+    // background, so eval/snapshot — which target the active tab — would scan a blank
+    // page ("Detected: none") and then fail to reattach ("Tab not found"). Opening in
+    // the active tab keeps eval pointed at the page we just loaded.
+    const result = bb('open', url);
     // Extract tabId from output like "Tab ID: XXXX"
     const tabMatch = result.match(/Tab ID:\s*(\S+)/);
     if (tabMatch) {
       this._tabId = tabMatch[1];
       this._openedTabs.push(this._tabId);
     }
-    // Wait for page to settle (no networkidle equivalent)
-    await new Promise(r => setTimeout(r, 2000));
+    // Wait for the page to actually finish loading. A fixed sleep was too short for
+    // JS/Cloudflare-gated forms — snapshot would run mid-load and see zero fields
+    // ("Detected: none"). Poll document.readyState until 'complete' (cap ~20s).
+    const deadline = Date.now() + 20000;
+    // Date.now in a wrapper subprocess is fine (not a workflow script).
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 700));
+      let state = '';
+      try { state = bb('eval', 'document.readyState'); } catch { continue; }
+      if (state === 'complete' || state === 'interactive') break;
+    }
+    // Small extra settle for late-hydrating form widgets.
+    await new Promise((r) => setTimeout(r, 1200));
+    // NOW that the page is loaded and the active tab is stable, prune stray tabs.
+    // bb-browser 0.11.6 leaves blank tabs around (about:blank + open churn), and
+    // `snapshot -i` specifically fails with "Tab not found" when >1 tab exists even
+    // though `eval` works. Reducing to the single active (loaded) tab makes snapshot
+    // reliable. Done post-load so we never race and close the form tab itself.
+    this._closeInactiveTabs();
+  }
+
+  /**
+   * Close every tab except the currently-active one, so eval/snapshot are unambiguous.
+   * Re-lists after each close because indices renumber.
+   */
+  _closeInactiveTabs() {
+    for (let guard = 0; guard < 50; guard++) {
+      let list;
+      try { list = bb('tab', 'list'); } catch { return; }
+      const rows = list.split('\n').filter((l) => /\[\d+\]/.test(l));
+      if (rows.length <= 1) return;
+      // Find the first NON-active row (active row is prefixed with '*').
+      let idx = null;
+      for (const row of rows) {
+        const isActive = row.trim().startsWith('*');
+        const m = row.match(/\[(\d+)\]/);
+        if (m && !isActive) { idx = m[1]; break; }
+      }
+      if (idx === null) return;
+      try { bb('tab', 'close', idx); } catch { return; }
+    }
   }
 
   /**
@@ -150,10 +193,24 @@ export class BbPage {
   }
 
   /**
-   * Get interactive snapshot — returns parsed accessibility tree text
+   * Get interactive snapshot — returns parsed accessibility tree text.
+   * Retries: right after tab churn (e.g. pruning stray tabs) bb-browser 0.11.6 can
+   * transiently return empty / "Tab not found" for `snapshot -i` while the daemon
+   * re-resolves the active target, even though `eval` already works. A couple of
+   * short retries makes it reliable without masking a genuinely empty page.
    */
   async snapshot() {
-    return bb('snapshot', '-i');
+    let last = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        last = bb('snapshot', '-i');
+        if (last && /\[ref=\d+\]/.test(last)) return last;
+      } catch (e) {
+        last = '';
+      }
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    return last;
   }
 
   /**

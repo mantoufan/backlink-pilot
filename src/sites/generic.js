@@ -14,30 +14,46 @@ const FIELD_PATTERNS = {
 const SUBMIT_PATTERNS = /submit|send|add|post|create|list|suggest|save/i;
 
 /**
- * Parse bb-browser snapshot output to find interactive elements
- * Snapshot format: lines like "@3 [textbox] Name ..." or "@7 [button] Submit"
+ * Parse bb-browser snapshot output to find interactive elements.
+ *
+ * bb-browser 0.11.6 snapshot format is: `<role> [ref=<N>] "<label>"`, e.g.
+ *   label   [ref=8]  "Tool URL *"
+ *   textbox [ref=9]  "Tool URL"
+ *   button  [ref=20] "Submit"
+ * (The old format was `@3 [textbox] Name`.) Fields are matched by the label — we
+ * prefer the preceding `label` line (explicit field labels like "Email *") over the
+ * input's own placeholder, because placeholders like "username@gmail.com" false-match
+ * the name/email patterns. Refs are returned as `@N`, which bb-browser's fill/click want.
  */
+const INPUT_ROLES = new Set(['textbox', 'combobox', 'searchbox', 'textarea']);
+
 function parseSnapshot(snapshot) {
   const fields = { name: null, url: null, email: null, description: null, submit: null };
   const lines = snapshot.split('\n');
+  let pendingLabel = ''; // text of the most recent `label` line
 
   for (const line of lines) {
-    const refMatch = line.match(/^.*?(@\d+)\s+\[(\w+)\]\s*(.*)$/);
-    if (!refMatch) continue;
+    const m = line.match(/^\s*([\w-]+)\s+\[ref=(\d+)\]\s*(?:"([^"]*)")?/);
+    if (!m) continue;
+    const [, role, num, rawLabel = ''] = m;
+    const ref = `@${num}`;
 
-    const [, ref, role, label] = refMatch;
-    const labelLower = label.toLowerCase();
-
-    // Match input/textarea fields
-    if (role === 'textbox' || role === 'combobox') {
-      if (!fields.name && FIELD_PATTERNS.name.test(labelLower)) fields.name = ref;
-      else if (!fields.url && FIELD_PATTERNS.url.test(labelLower)) fields.url = ref;
-      else if (!fields.email && FIELD_PATTERNS.email.test(labelLower)) fields.email = ref;
-      else if (!fields.description && FIELD_PATTERNS.description.test(labelLower)) fields.description = ref;
+    if (role === 'label') {
+      pendingLabel = rawLabel;
+      continue;
     }
 
-    // Match submit button
-    if ((role === 'button' || role === 'link') && SUBMIT_PATTERNS.test(labelLower)) {
+    // Prefer the explicit preceding label; fall back to the element's own label.
+    const label = (pendingLabel || rawLabel).toLowerCase();
+
+    if (INPUT_ROLES.has(role)) {
+      // A textarea is almost always the description/message body.
+      if (!fields.description && (role === 'textarea' || FIELD_PATTERNS.description.test(label))) fields.description = ref;
+      else if (!fields.url && FIELD_PATTERNS.url.test(label)) fields.url = ref;
+      else if (!fields.email && FIELD_PATTERNS.email.test(label)) fields.email = ref;
+      else if (!fields.name && FIELD_PATTERNS.name.test(label)) fields.name = ref;
+      pendingLabel = ''; // consumed
+    } else if ((role === 'button' || role === 'link') && SUBMIT_PATTERNS.test((rawLabel || '').toLowerCase())) {
       if (!fields.submit) fields.submit = ref;
     }
   }
